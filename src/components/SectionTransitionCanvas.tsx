@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 const TRANSITION_TARGETS = ["sobre", "formacao", "procedimentos", "depoimentos", "final-cta"];
 const TRANSITION_MOTIFS = ["face", "ear", "particles", "face", "ear"] as const;
 const POINT_COUNT = 84;
+const MAX_PARTICLES = 10;
 
 type ShapePoint = { x: number; y: number };
 
@@ -105,8 +106,11 @@ export function SectionTransitionCanvas() {
     let renderedPhase = 0;
     let sequenceActive = 0;
     let renderedActive = 0;
+    let sequenceCenterY = -1;
+    let renderedCenterY = -1;
     let activeTransition = -1;
     let anchors: number[] = [];
+    const experienceStartedAt = performance.now();
     let cleanupThree: (() => void) | undefined;
 
     const handleReducedMotion = (event: MediaQueryListEvent) => {
@@ -140,7 +144,7 @@ export function SectionTransitionCanvas() {
       const lineGeometry = new THREE.BufferGeometry();
       const particleGeometry = new THREE.BufferGeometry();
       const linePositions = new Float32Array(POINT_COUNT * 3);
-      const particlePositions = new Float32Array(8 * 3);
+      const particlePositions = new Float32Array(MAX_PARTICLES * 3);
       const linePositionAttribute = new THREE.BufferAttribute(linePositions, 3);
       const particlePositionAttribute = new THREE.BufferAttribute(particlePositions, 3);
       lineGeometry.setAttribute("position", linePositionAttribute);
@@ -150,6 +154,15 @@ export function SectionTransitionCanvas() {
         color: gold,
         transparent: true,
         opacity: 0,
+        linewidth: 1.38,
+        depthTest: false,
+        depthWrite: false,
+      });
+      const lineAccentMaterial = new THREE.LineBasicMaterial({
+        color: gold,
+        transparent: true,
+        opacity: 0,
+        linewidth: 1.38,
         depthTest: false,
         depthWrite: false,
       });
@@ -163,12 +176,13 @@ export function SectionTransitionCanvas() {
         depthWrite: false,
       });
       const line = new THREE.Line(lineGeometry, lineMaterial);
+      const lineAccent = new THREE.Line(lineGeometry, lineAccentMaterial);
       const particles = new THREE.Points(particleGeometry, particleMaterial);
-      scene.add(line, particles);
+      scene.add(line, lineAccent, particles);
 
       let aspect = 1;
       let mobile = false;
-      let particleCount = 8;
+      let particleCount = MAX_PARTICLES;
 
       const updateAnchors = () => {
         anchors = TRANSITION_TARGETS.map((id) => {
@@ -180,8 +194,8 @@ export function SectionTransitionCanvas() {
       const updateScroll = () => {
         if (!anchors.length) return;
         const focus = window.scrollY + window.innerHeight * 0.58;
-        const lead = window.innerHeight * 0.68;
-        const trail = window.innerHeight * 0.44;
+        const lead = window.innerHeight * 0.82;
+        const trail = window.innerHeight * 0.53;
         const activeIndex = anchors.findIndex((anchor) => focus >= anchor - lead && focus <= anchor + trail);
 
         if (activeIndex === -1) {
@@ -191,10 +205,12 @@ export function SectionTransitionCanvas() {
 
         const activeAnchor = anchors[activeIndex];
         sequencePhase = clamp((focus - (activeAnchor - lead)) / (lead + trail));
+        sequenceCenterY = 1 - ((activeAnchor - window.scrollY) / window.innerHeight) * 2;
         if (activeTransition !== activeIndex) {
           activeTransition = activeIndex;
           renderedPhase = sequencePhase;
           renderedActive = 0;
+          renderedCenterY = sequenceCenterY;
         }
         sequenceActive = 1;
       };
@@ -203,7 +219,7 @@ export function SectionTransitionCanvas() {
         const width = window.innerWidth;
         const height = window.innerHeight;
         mobile = width < 720;
-        particleCount = mobile ? 4 : 8;
+        particleCount = mobile ? 5 : MAX_PARTICLES;
         aspect = width / Math.max(height, 1);
         camera.left = -aspect;
         camera.right = aspect;
@@ -212,6 +228,7 @@ export function SectionTransitionCanvas() {
         camera.updateProjectionMatrix();
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1 : 1.5));
         renderer.setSize(width, height, false);
+        lineAccent.position.x = 0.76 / Math.max(height, 1);
         updateAnchors();
         updateScroll();
       };
@@ -220,6 +237,7 @@ export function SectionTransitionCanvas() {
         if (!visible || disposed) return;
         renderedPhase += (sequencePhase - renderedPhase) * 0.04;
         renderedActive += (sequenceActive - renderedActive) * 0.035;
+        renderedCenterY += (sequenceCenterY - renderedCenterY) * 0.06;
 
         const phase = clamp(renderedPhase);
         const motif = TRANSITION_MOTIFS[activeTransition] ?? "face";
@@ -261,24 +279,29 @@ export function SectionTransitionCanvas() {
             (1 - smoothstep(clamp((phase - 0.78) / 0.16)))
           : 0;
         const drift = Math.sin(time * 0.00018) * (mobile ? 0.006 : 0.012);
-        const scrollTravel = (0.5 - phase) * (mobile ? 0.08 : 0.16);
+        const scrollTravel = (0.5 - phase) * (mobile ? 0.018 : 0.028);
         const dissolveSpread = particleStage * (mobile ? 0.035 : 0.065);
+        const horizontalJourney = -0.14 - smoothstep(phase) * 1.28;
+        const verticalScale = mobile ? 0.17 : 0.22;
 
         for (let index = 0; index < POINT_COUNT; index += 1) {
           const t = index / (POINT_COUNT - 1);
           const from = shapePoint(fromShape, t);
           const to = shapePoint(toShape, t);
-          const x = (from.x + (to.x - from.x) * mix) * aspect + drift;
+          const x = (from.x + (to.x - from.x) * mix + horizontalJourney) * aspect + drift;
           const handDrawn =
             Math.sin(t * Math.PI * 13 + activeTransition * 1.7) * 0.0018 +
             Math.sin(t * Math.PI * 29 + activeTransition) * 0.0007;
           const y =
             from.y +
-            (to.y - from.y) * mix +
+            (to.y - from.y) * mix;
+          const positionedY =
+            renderedCenterY +
+            y * verticalScale +
             scrollTravel +
             Math.sin(t * Math.PI * 4 + time * 0.00008) * 0.0025;
           linePositions[index * 3] = x + handDrawn;
-          linePositions[index * 3 + 1] = y;
+          linePositions[index * 3 + 1] = positionedY;
         }
         linePositionAttribute.needsUpdate = true;
 
@@ -292,8 +315,10 @@ export function SectionTransitionCanvas() {
         particlePositionAttribute.needsUpdate = true;
         particleGeometry.setDrawRange(0, particleCount);
 
-        const opacity = renderedActive * (mobile ? 0.07 : 0.13);
+        const delayedPresence = smoothstep((time - experienceStartedAt - 1800) / 1600);
+        const opacity = renderedActive * delayedPresence * (mobile ? 0.1 : 0.17);
         lineMaterial.opacity = opacity * lineStage;
+        lineAccentMaterial.opacity = opacity * lineStage * 0.38;
         particleMaterial.opacity = opacity * particleStage * 0.75;
         renderer.render(scene, camera);
         animationFrame = window.requestAnimationFrame(render);
@@ -324,6 +349,7 @@ export function SectionTransitionCanvas() {
         lineGeometry.dispose();
         particleGeometry.dispose();
         lineMaterial.dispose();
+        lineAccentMaterial.dispose();
         particleMaterial.dispose();
         renderer.dispose();
         renderer.forceContextLoss();

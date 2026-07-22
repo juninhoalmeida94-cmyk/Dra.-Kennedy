@@ -875,6 +875,7 @@ header.scrolled .logo-mark{height:36px;}
 
 /* Sections */
 section{padding:130px 0;}
+section > .wrap,#resultados > .results-shell{position:relative;z-index:2;}
 @media (max-width:768px){section{padding:80px 0;}}
 .section-head{max-width:680px;margin-bottom:64px;}
 .section-head .eyebrow{display:block;margin-bottom:18px;}
