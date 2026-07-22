@@ -11,19 +11,32 @@ const smoothstep = (value: number) => {
   return t * t * (3 - 2 * t);
 };
 
+const bell = (value: number, center: number, width: number) =>
+  Math.exp(-Math.pow((value - center) / width, 2));
+
 function shapePoint(shape: number, t: number): ShapePoint {
   const vertical = 0.82 - t * 1.64;
 
   switch (shape) {
     case 0:
       return {
-        x: 0.78 + Math.sin(t * Math.PI) * 0.13 - Math.sin(t * Math.PI * 2) * 0.025,
-        y: vertical + Math.sin(t * Math.PI * 2.4) * 0.035,
+        x:
+          0.76 +
+          Math.sin(t * Math.PI) * 0.1 +
+          bell(t, 0.39, 0.055) * 0.075 -
+          bell(t, 0.51, 0.045) * 0.025 +
+          bell(t, 0.59, 0.035) * 0.026 -
+          bell(t, 0.7, 0.07) * 0.04,
+        y: vertical,
       };
     case 1:
       return {
-        x: 0.82 + Math.sin(t * Math.PI * 2) * 0.085 + Math.sin(t * Math.PI * 4) * 0.025,
-        y: vertical * 0.82 + Math.cos(t * Math.PI * 2) * 0.075,
+        x:
+          0.78 +
+          Math.sin(t * Math.PI) * 0.13 -
+          bell(t, 0.48, 0.16) * 0.055 +
+          Math.sin(t * Math.PI * 4) * 0.012,
+        y: vertical * 0.82 + Math.sin(t * Math.PI * 2) * 0.025,
       };
     case 2:
       return {
@@ -212,9 +225,12 @@ export function SectionTransitionCanvas() {
         let toShape = 2;
         let mix = 0;
         let lineStage = 0;
+        let drawStart = 0;
+        let drawCount = POINT_COUNT;
 
         if (phase < 0.12) {
           lineStage = smoothstep(phase / 0.12);
+          drawCount = Math.max(2, Math.round(POINT_COUNT * smoothstep(phase / 0.12)));
         } else if (phase < 0.38) {
           toShape = 0;
           mix = smoothstep((phase - 0.12) / 0.26);
@@ -228,27 +244,38 @@ export function SectionTransitionCanvas() {
           toShape = 1;
           mix = smoothstep((phase - 0.52) / 0.32);
           lineStage = 1 - smoothstep((phase - 0.52) / 0.16);
+          drawStart = Math.round(POINT_COUNT * smoothstep((phase - 0.52) / 0.16) * 0.88);
+          drawCount = Math.max(2, POINT_COUNT - drawStart);
         } else if (phase < 0.84) {
           fromShape = 0;
           toShape = 1;
           mix = smoothstep((phase - 0.52) / 0.32);
           lineStage = smoothstep((phase - 0.68) / 0.16);
+          drawCount = Math.max(2, Math.round(POINT_COUNT * smoothstep((phase - 0.68) / 0.16)));
         } else {
           fromShape = 1;
           toShape = 1;
           lineStage = phase < 0.94 ? 1 : 1 - smoothstep((phase - 0.94) / 0.06);
         }
 
+        lineGeometry.setDrawRange(drawStart, drawCount);
+
         const particleStage = smoothstep(clamp((phase - 0.5) / 0.13)) *
           (1 - smoothstep(clamp((phase - 0.72) / 0.13)));
         const drift = Math.sin(time * 0.00018) * (mobile ? 0.006 : 0.012);
+        const scrollTravel = (0.5 - phase) * (mobile ? 0.08 : 0.16);
+        const dissolveSpread = particleStage * (mobile ? 0.035 : 0.065);
 
         for (let index = 0; index < POINT_COUNT; index += 1) {
           const t = index / (POINT_COUNT - 1);
           const from = shapePoint(fromShape, t);
           const to = shapePoint(toShape, t);
           const x = (from.x + (to.x - from.x) * mix) * aspect + drift;
-          const y = from.y + (to.y - from.y) * mix + Math.sin(t * Math.PI * 4 + time * 0.00012) * 0.004;
+          const y =
+            from.y +
+            (to.y - from.y) * mix +
+            scrollTravel +
+            Math.sin(t * Math.PI * 4 + time * 0.00012) * 0.004;
           linePositions[index * 3] = x;
           linePositions[index * 3 + 1] = y;
         }
@@ -256,8 +283,10 @@ export function SectionTransitionCanvas() {
 
         for (let index = 0; index < particleCount; index += 1) {
           const pointIndex = Math.round(((index + 0.65) / particleCount) * (POINT_COUNT - 1)) * 3;
-          particlePositions[index * 3] = linePositions[pointIndex] + Math.sin(index * 2.7 + time * 0.00025) * 0.025;
-          particlePositions[index * 3 + 1] = linePositions[pointIndex + 1] + Math.cos(index * 1.9 + time * 0.0002) * 0.018;
+          particlePositions[index * 3] =
+            linePositions[pointIndex] + Math.sin(index * 2.7 + time * 0.00025) * dissolveSpread;
+          particlePositions[index * 3 + 1] =
+            linePositions[pointIndex + 1] + Math.cos(index * 1.9 + time * 0.0002) * dissolveSpread * 0.72;
         }
         particlePositionAttribute.needsUpdate = true;
         particleGeometry.setDrawRange(0, particleCount);
